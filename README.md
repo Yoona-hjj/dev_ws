@@ -1,37 +1,39 @@
-# 青青草原队
+# Team Qingqing Grassland
 
-## 1. 参赛队伍基本信息
+## 1. Team Basic Information
 
-| 项目 | 内容 |
+| Item | Details |
 |---|---|
-| 赛队名称 | 青青草原队 |
-| 学校名称 | 杭州电子科技大学信息工程学院 |
-| 队长 | 韩佳杰 |
-| 参赛模式 | 全自动模式 |
-| 软件框架 | ROS 2 |
-| 主要运行平台 | RDK X5|
-| 主控设备与底盘 | 阿克曼底盘，串口协议桥接控制 |
+| Team Name | Qingqing Grassland Team |
+| University | College of Information Engineering, Hangzhou Dianzi University |
+| Team Leader | Han Jiajie |
+| Competition Mode | Fully Autonomous Mode |
+| Software Framework | ROS 2 |
+| Main Platform | RDK X5 |
+| Controller & Chassis | Ackermann chassis, controlled via serial protocol bridge |
 
-## 2. 方案概述
-本方案面向赛道巡线、障碍物规避、二维码识别、路线选择、视觉任务识别和终点目标停车等任务，采用“视觉感知 + 惯性融合定位 + 航点导航 + 视觉控制接管”的混合式自动驾驶架构。
-系统启动后由 ROS 2 Launch 统一拉起相机、图像编解码、视觉感知、二维码识别、惯性融合、航点导航和底盘控制节点。机器人前期根据融合里程计执行航点导航；在二维码或指定路线阶段完成路线切换；在最终返程或视觉接管点切换至视觉巡线和视觉避障控制；最终通过 P 点检测与对准逻辑完成停车。
+## 2. Solution Overview
 
-## 3. 整体系统架构
+This solution addresses tasks including track following, obstacle avoidance, QR code recognition, route selection, visual task recognition, and end-point parking. It adopts a hybrid autonomous driving architecture combining "visual perception + inertial fusion localization + waypoint navigation + visual control takeover".
+
+Upon system startup, ROS 2 Launch brings up the camera, image codec, visual perception, QR code recognition, inertial fusion, waypoint navigation, and chassis control nodes together. The robot initially follows waypoints based on fused odometry; switches routes upon detecting QR codes or reaching designated waypoints; transitions to visual line-following and obstacle avoidance during the final return leg or at visual takeover points; and completes parking through P-point detection and alignment logic.
+
+## 3. Overall System Architecture
 
 ```text
-USB 摄像头
+USB Camera
     │
     ▼
-RDK 相机节点 / hobot_codec
-    │ 共享内存 NV12 图像：/nv12_img
-    ├──────────────► ResNet 巡线检测 ─────► /racing_track_center_detection
-    ├──────────────► YOLO 障碍物/P点检测 ─► /racing_obstacle_detection
-    └──────────────► ROI 二维码识别 ───────► /qrcode_result、/qrcode_bottom
+RDK Camera Node / hobot_codec
+    │ Shared memory NV12 image: /nv12_img
+    ├──────────────► ResNet Track Detection ─────► /racing_track_center_detection
+    ├──────────────► YOLO Obstacle/P-point Detection ─► /racing_obstacle_detection
+    └──────────────► ROI QR Code Recognition ───────► /qrcode_result, /qrcode_bottom
 
-底盘串口 / IMU
+Chassis Serial / IMU
     │
     ▼
-V2 串口协议桥 ─► Madgwick IMU ─► EKF/ZUPT/非完整约束
+V2 Serial Protocol Bridge ─► Madgwick IMU ─► EKF/ZUPT/Non-holonomic Constraint
     │
     └────────────────────────────► /odom_combined
 
@@ -40,161 +42,158 @@ V2 串口协议桥 ─► Madgwick IMU ─► EKF/ZUPT/非完整约束
     ▼
 waypoint_nav_node
     │
-    ├─ 航点控制指令：/nav_cmd_vel
-    ├─ 视觉接管信号：/vision_enable、/car_go
-    └─ 图像任务请求：/get_picture
+    ├─ Waypoint control: /nav_cmd_vel
+    ├─ Visual takeover signals: /vision_enable, /car_go
+    └─ Image task request: /get_picture
 
-巡线/障碍物检测
+Line-following / Obstacle Detection
     │
     ▼
 racing_control ─► /racing
                          │
-航点控制 /nav_cmd_vel ───┼──► control_master ─► /cmd_vel ─► 底盘
+Waypoint control /nav_cmd_vel ───┼──► control_master ─► /cmd_vel ─► Chassis
                          │
-                 LiDAR 避障可选覆盖
+                 LiDAR Obstacle Avoidance (optional overlay)
 
-/get_picture ─► 图像压缩 ─► VLM 客户端 ─► /vision_language_model
+/get_picture ─► Image Compression ─► VLM Client ─► /vision_language_model
 ```
 
-## 4. 硬件选型与连接方式
+## 4. Hardware Selection and Interfaces
 
-### 4.1 计算平台
+### 4.1 Computing Platform
 
-- RDK X5 作为主计算平台。
-- 使用 ROS 2 运行节点、Launch 文件和消息通信。
-- 使用地平线 DNN 节点和 BPU 推理能力执行巡线及障碍物检测。
-- 使用共享内存方式传输 NV12 图像，降低图像复制和传输开销。
+- RDK X5 as the main computing platform.
+- ROS 2 for node execution, launch files, and message communication.
+- Horizon DNN nodes and BPU inference for track detection and obstacle detection.
+- Shared-memory NV12 image transport to reduce copying and transmission overhead.
 
-### 4.2 传感器与执行机构
+### 4.2 Sensors and Actuators
 
-- USB 摄像头：采集赛道、障碍物、二维码和终点目标图像。
-- IMU：提供姿态与角速度信息，接入 Madgwick 滤波和 EKF。
-- 底盘里程/串口：通过 V2 协议桥接节点接收底盘状态并发送控制指令。
-- 激光雷达：作为可选避障传感器，开启 `enable_lidar_avoid` 后接入 `/scan`。
-- 阿克曼底盘：通过 `/cmd_vel` 接收统一控制输出。
+- USB Camera: captures images of the track, obstacles, QR codes, and end-point targets.
+- IMU: provides attitude and angular velocity data, fed into Madgwick filter and EKF.
+- Chassis Odometry / Serial: receives chassis status and sends control commands through the V2 protocol bridge node.
+- LiDAR: optional obstacle-avoidance sensor; subscribes to `/scan` when `enable_lidar_avoid` is enabled.
+- Ackermann Chassis: receives unified control output via `/cmd_vel`.
 
-### 4.3 主要接口
+### 4.3 Main Interfaces
 
-| 接口 | 作用 |
+| Topic | Purpose |
 |---|---|
-| `/nv12_img` | RDK 共享内存 NV12 图像 |
-| `/racing_track_center_detection` | 巡线中心检测结果 |
-| `/racing_obstacle_detection` | 障碍物和 P 点检测结果 |
-| `/qrcode_result` | 二维码内容和路线信息 |
-| `/qrcode_bottom` | 二维码在图像中的底部位置，用于接近减速 |
-| `/odom_combined` | EKF 融合里程计 |
-| `/nav_cmd_vel` | 航点导航控制指令 |
-| `/racing` | 视觉巡线控制指令 |
-| `/vision_enable` | 视觉控制接管开关 |
-| `/cmd_vel` | 主控统一输出到底盘的速度指令 |
-| `/vision_language_model` | 场景识别结果 |
+| `/nv12_img` | RDK shared-memory NV12 image |
+| `/racing_track_center_detection` | Track center detection result |
+| `/racing_obstacle_detection` | Obstacle and P-point detection results |
+| `/qrcode_result` | QR code content and route information |
+| `/qrcode_bottom` | Bottom position of QR code in image, used for approach deceleration |
+| `/odom_combined` | EKF fused odometry |
+| `/nav_cmd_vel` | Waypoint navigation control command |
+| `/racing` | Visual line-following control command |
+| `/vision_enable` | Visual control takeover switch |
+| `/cmd_vel` | Unified velocity command output to chassis |
+| `/vision_language_model` | Scene recognition result |
 
-## 5. 软件系统设计
+## 5. Software System Design
 
-### 5.1 启动方式
+### 5.1 Startup Method
 
-方案使用混合导航 Launch：
+The solution uses a hybrid navigation launch file:
 
 ```bash
 ros2 launch origincar_v2_bridge hybrid_nav.launch.py
 ```
 
-启动后发送自动开始命令：
+After startup, send the auto-start command:
 
 ```bash
 ros2 topic pub /nav_command std_msgs/msg/String "data: 'start'" --once
 ```
 
-常用控制命令：
+Common control commands:
 
 ```bash
-# 暂停
+# Pause
 ros2 topic pub /nav_command std_msgs/msg/String "data: 'pause'" --once
 
-# 恢复
+# Resume
 ros2 topic pub /nav_command std_msgs/msg/String "data: 'resume'" --once
 
-# 重置
+# Reset
 ros2 topic pub /nav_command std_msgs/msg/String "data: 'reset'" --once
 ```
 
-### 5.2 感知模块
+### 5.2 Perception Modules
 
-#### 巡线检测
+#### Track Detection
 
-使用 ResNet 巡线检测节点从 NV12 图像中提取赛道中心点，输出 `track_center` 类型结果。控制节点根据图像中心与赛道中心偏差计算角速度，并对控制输出进行限幅和滤波。
+The ResNet track detection node extracts the track center point from NV12 images and outputs `track_center` type results. The control node computes angular velocity based on the deviation between the image center and the track center, with clamping and filtering applied to the control output.
 
-#### 障碍物检测
+#### Obstacle Detection
 
-使用 YOLO 检测赛道障碍物和 P 点目标。系统根据目标置信度、检测框面积和目标底部位置选择主要目标，在接近障碍物时执行方向调整，在接近 P 点时进入对准、盲进和停车阶段。
+YOLO is used to detect track obstacles and P-point targets. The system selects the primary target based on confidence, bounding box area, and bottom position; adjusts direction when approaching obstacles; and enters alignment, blind-approach, and parking phases when approaching the P-point.
 
-#### 二维码识别
+#### QR Code Recognition
 
-二维码识别节点输出二维码内容和二维码位置。二维码内容用于确定顺时针或逆时针路线；二维码底部位置用于视觉控制阶段的减速和停车控制。
+The QR code recognition node outputs QR content and position. The content determines clockwise or counter-clockwise routing; the bottom position is used for deceleration and parking control during the visual phase.
 
-#### 场景视觉语言模型
+#### Visual Language Model (VLM) for Scenes
 
-在yolo识别到person以后，通过 `/get_picture` 请求采集一帧图像，发送给视觉语言模型进行场景描述，并将结果发布到 `/vision_language_model`，API 密钥通过环境变量提供，不写入源代码。
+When YOLO detects a person, a frame is captured via the `/get_picture` request, sent to the visual language model for scene description, and the result is published to `/vision_language_model`. API keys are provided via environment variables and are not hard-coded in source files.
 
-### 5.3 惯性融合与航点导航
+### 5.3 Inertial Fusion and Waypoint Navigation
 
-底盘串口、IMU 和速度信息经过以下处理：
+Chassis serial data, IMU, and velocity information are processed as follows:
 
-1. V2 串口协议桥接节点接收底盘状态。
-2. Madgwick 节点对 IMU 姿态进行滤波。
-3. 非完整约束节点向 EKF 提供阿克曼车辆 `vy=0` 约束。
-4. ZUPT 节点在静止状态提供零速更新。
-5. robot_localization EKF 输出 `/odom_combined`。
-6. `waypoint_nav_node` 根据航点、位置和航向误差生成 `/nav_cmd_vel`。
+1. The V2 serial protocol bridge node receives chassis status.
+2. The Madgwick node filters IMU attitude.
+3. The non-holonomic constraint node provides the Ackermann `vy=0` constraint to the EKF.
+4. The ZUPT node provides zero-velocity updates during stationary states.
+5. robot_localization EKF outputs `/odom_combined`.
+6. `waypoint_nav_node` generates `/nav_cmd_vel` based on waypoints, position, and heading error.
 
-航点控制采用前视目标、航向 PID、速度分级、曲线减速、局部重定位和必要时的倒车/U 型转向策略。
+Waypoint control employs lookahead targeting, heading PID, speed grading, curve deceleration, local relocalization, and reverse / U-turn strategies when necessary.
 
-### 5.4 控制权管理
+### 5.4 Control Authority Management
 
-系统使用 `control_master` 统一向底盘发布 `/cmd_vel`，避免航点节点和视觉节点同时直接控制底盘：
+The system uses `control_master` to publish `/cmd_vel` to the chassis in a unified manner, preventing the waypoint node and visual node from directly controlling the chassis simultaneously:
 
-- 未启用视觉接管时，转发 `/nav_cmd_vel`。
-- 启用视觉接管后，转发 `/racing`。
-- 启用 LiDAR 避障时，在基础控制指令上叠加局部避障策略。
-- 二维码或 P 点停车标志触发后，输出零速度。
-- 程序退出时重复发布零速度，降低底盘保持最后速度的风险。
+- When visual takeover is disabled, forwards `/nav_cmd_vel`.
+- When visual takeover is enabled, forwards `/racing`.
+- When LiDAR obstacle avoidance is enabled, overlays local avoidance strategies on top of the base command.
+- Upon QR code or P-point parking trigger, outputs zero velocity.
+- Repeatedly publishes zero velocity on program exit to reduce the risk of the chassis maintaining the last speed.
 
-## 6. 关键任务实现策略
+## 6. Key Task Implementation Strategies
 
-| 任务 | 实现策略 |
+| Task | Implementation Strategy |
 |---|---|
-| 赛道巡线 | ResNet 提取赛道中心，比例控制与滤波生成视觉转向 |
-| 障碍物规避 | YOLO 检测障碍物；视觉控制执行方向规避；可选 LiDAR 进行局部避障 |
-| 二维码识别 | ROI 二维码识别，连续检测后确认，输出路线方向 |
-| 路线选择 | 根据二维码内容切换顺时针/逆时针航点路线 |
-| 惯性导航 | 串口、IMU、EKF、ZUPT 和阿克曼非完整约束融合 |
-| 航点跟踪 | 前视航点、航向 PID、曲线减速和到点任务状态机 |
-| VLM 任务 | 到达指定航点后采图，异步调用视觉语言模型 |
-| P 点停车 | 目标横向对准、接近减速、盲进计时和最终零速度输出 |
-| 控制安全 | 由 `control_master` 统一输出到底盘，减少多节点抢占控制权 |
+| Track Following | ResNet extracts track center; proportional control and filtering generate visual steering |
+| Obstacle Avoidance | YOLO detects obstacles; visual control performs directional avoidance; optional LiDAR for local obstacle avoidance |
+| QR Code Recognition | ROI-based QR detection, confirmed after consecutive frames, outputs route direction |
+| Route Selection | Switches clockwise / counter-clockwise waypoint routes based on QR content |
+| Inertial Navigation | Fusion of serial, IMU, EKF, ZUPT, and Ackermann non-holonomic constraints |
+| Waypoint Tracking | Lookahead waypoints, heading PID, curve deceleration, and waypoint-reached state machine |
+| VLM Task | Captures image at designated waypoint, asynchronously calls visual language model |
+| P-point Parking | Lateral target alignment, approach deceleration, blind-approach timer, and final zero-velocity output |
+| Control Safety | Unified chassis output via `control_master`, reducing multi-node control contention |
 
-## 7. 规则适配说明
-- 参赛模式采用全自动模式，机器人根据预设航点、视觉识别和融合定位自主运行。
-- 通过二维码内容选择对应路线，适配不同路线方向任务。
-- 通过巡线和障碍物检测完成赛道跟踪与障碍规避。
-- 通过 P 点检测和停车状态机完成终点任务。
-- 通过 ROS 2 节点化设计划分感知、定位、规划和控制模块，便于现场调试和故障定位。
-- 具体评分规则、赛道尺寸、障碍物位置和任务触发条件以省赛正式规则为准。
+## 7. Rule Adaptation Notes
 
+- Fully autonomous competition mode — the robot operates autonomously based on pre-set waypoints, visual recognition, and fusion localization.
+- Route selection via QR code content, adapting to different route direction tasks.
+- Track following and obstacle avoidance completed through line detection and obstacle detection.
+- End-point task completed through P-point detection and parking state machine.
+- ROS 2 node-based design separates perception, localization, planning, and control modules for convenient on-site debugging and fault isolation.
+- Specific scoring rules, track dimensions, obstacle positions, and task trigger conditions follow the official provincial competition rules.
 
-## 8.已删除内容及模型
-#### 删除内容说明
+## 8. Removed Content and Models
+
+### Removed Content Description
+
 ```
 ├── models/
-│   ├── converted_model.bin          # YOLO 障碍物检测模型
-│   └── race_track_detection.bin     # ResNet 巡线检测模型
+│   ├── converted_model.bin          # YOLO obstacle detection model
+│   └── race_track_detection.bin     # ResNet track detection model
 └── config/
-    ├── waypoints.yaml               # 实际赛道航点（500个）与控制参数
-    ├── ekf_akm.yaml                 # EKF 融合与阿克曼标定参数
-    └── imu_madgwick.yaml            # IMU Madgwick 滤波参数
+    ├── waypoints.yaml               # Actual track waypoints (500) and control parameters
+    ├── ekf_akm.yaml                 # EKF fusion and Ackermann calibration parameters
+    └── imu_madgwick.yaml            # IMU Madgwick filter parameters
 ```
-
-
-
-
-
